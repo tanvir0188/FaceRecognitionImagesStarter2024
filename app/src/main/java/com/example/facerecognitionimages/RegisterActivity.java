@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
@@ -30,6 +31,7 @@ import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.util.Log;
@@ -48,15 +50,19 @@ import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
 import com.google.mlkit.vision.face.FaceLandmark;
 
+import java.io.File;
 import java.io.FileDescriptor;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 
 public class RegisterActivity extends AppCompatActivity {
     CardView galleryCard,cameraCard;
     ImageView imageView;
-    Uri image_uri;
+    Uri image_uri, cameraImageUri;
     InputImage inputImage;
     private static final int REQUEST_PICK_IMAGE = 102;
     private static final int REQUEST_IMAGE_CAPTURE = 101;
@@ -110,10 +116,28 @@ public class RegisterActivity extends AppCompatActivity {
 
     private void openCamera() {
         Intent takePicture = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        if (takePicture.resolveActivity(getPackageManager()) != null) {
+        // Create a file to store the image
+        File photoFile = createImageFile();
+        if (photoFile != null) {
+            cameraImageUri = FileProvider.getUriForFile(this, "your.package.name.fileprovider", photoFile);
+            takePicture.putExtra(MediaStore.EXTRA_OUTPUT, cameraImageUri);
             startActivityForResult(takePicture, REQUEST_IMAGE_CAPTURE);
         }
     }
+
+    // Helper method to create an image file
+    private File createImageFile() {
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        try {
+            return File.createTempFile(imageFileName, ".jpg", storageDir);
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
@@ -127,6 +151,7 @@ public class RegisterActivity extends AppCompatActivity {
         }
     }
 
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -135,19 +160,19 @@ public class RegisterActivity extends AppCompatActivity {
             displayImage(image_uri);
             Bitmap inputImage = getBitmapFromUri(image_uri);
             performFaceDetection(inputImage);
-        } else if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK && data != null) {
-            // Handle camera capture
-            Bundle extras = data.getExtras();
-            Bitmap imageBitmap = (Bitmap) extras.get("data");
-            if (imageBitmap != null) {
-                imageView.setImageBitmap(imageBitmap);
-                Bitmap inputImage = getBitmapFromUri(image_uri);
-
-                image_uri = getImageUri(imageBitmap); // Convert bitmap to Uri for further processing
-                performFaceDetection(inputImage);
+        } else if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
+            // Use the cameraImageUri to get the full-resolution image
+            if (cameraImageUri != null) {
+                image_uri = cameraImageUri;
+                Bitmap inputImage = getBitmapFromUri(cameraImageUri);
+                if (inputImage != null) {
+                    displayImage(cameraImageUri);
+                    performFaceDetection(inputImage);
+                }
             }
         }
     }
+
 
     private void displayImage(Uri uri) {
         try {
