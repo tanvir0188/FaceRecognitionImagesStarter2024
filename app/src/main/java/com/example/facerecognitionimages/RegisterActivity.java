@@ -21,7 +21,12 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Matrix;
+import android.graphics.Paint;
+import android.graphics.PointF;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -32,11 +37,20 @@ import android.view.View;
 import android.widget.ImageView;
 import android.widget.Toast;
 
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
 import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.face.Face;
+import com.google.mlkit.vision.face.FaceContour;
+import com.google.mlkit.vision.face.FaceDetection;
+import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
+import com.google.mlkit.vision.face.FaceLandmark;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
+import java.util.List;
 
 
 public class RegisterActivity extends AppCompatActivity {
@@ -50,10 +64,11 @@ public class RegisterActivity extends AppCompatActivity {
     FaceDetectorOptions highAccuracyOpts =
             new FaceDetectorOptions.Builder()
                     .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
-                    .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
-                    .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+                    .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+                    .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
                     .build();
 
+    FaceDetector detector;
 
 
     @Override
@@ -69,6 +84,8 @@ public class RegisterActivity extends AppCompatActivity {
         galleryCard.setOnClickListener(v -> choosePicture(REQUEST_PICK_IMAGE));
 
         cameraCard.setOnClickListener(v-> takePicture(REQUEST_CAMERA_PERMISSION));
+
+        detector = FaceDetection.getClient(highAccuracyOpts);
 
 
     }
@@ -116,13 +133,18 @@ public class RegisterActivity extends AppCompatActivity {
         if (requestCode == REQUEST_PICK_IMAGE && resultCode == RESULT_OK && data != null && data.getData() != null) {
             image_uri = data.getData();
             displayImage(image_uri);
+            Bitmap inputImage = getBitmapFromUri(image_uri);
+            performFaceDetection(inputImage);
         } else if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK && data != null) {
             // Handle camera capture
             Bundle extras = data.getExtras();
             Bitmap imageBitmap = (Bitmap) extras.get("data");
             if (imageBitmap != null) {
                 imageView.setImageBitmap(imageBitmap);
+                Bitmap inputImage = getBitmapFromUri(image_uri);
+
                 image_uri = getImageUri(imageBitmap); // Convert bitmap to Uri for further processing
+                performFaceDetection(inputImage);
             }
         }
     }
@@ -141,7 +163,6 @@ public class RegisterActivity extends AppCompatActivity {
         return Uri.parse(path);
     }
 
-
     private Bitmap getBitmapFromUri(Uri uri) {
         try {
             return MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
@@ -150,6 +171,65 @@ public class RegisterActivity extends AppCompatActivity {
             return null;
         }
     }
+
+    public void performFaceDetection(Bitmap input){
+
+        Bitmap mutableBmp= input.copy(Bitmap.Config.ARGB_8888, true);
+        Canvas canvas = new Canvas(mutableBmp);
+        InputImage image = InputImage.fromBitmap(input, 0);
+        Task<List<Face>> result =
+                detector.process(image)
+                        .addOnSuccessListener(
+                                new OnSuccessListener<List<Face>>() {
+                                    @Override
+                                    public void onSuccess(List<Face> faces) {
+                                        // Task completed successfully
+                                        Log.d("tryFace", "Len = "+faces.size());
+                                        for (Face face : faces) {
+
+                                            Rect bounds = face.getBoundingBox();
+                                            Paint p1 = new Paint();
+                                            p1.setColor(Color.RED);
+                                            p1.setStyle(Paint.Style.STROKE);
+                                            performFaceRecognition(bounds,input);
+                                            canvas.drawRect(bounds, p1);
+
+                                        }
+
+                                    }
+                                })
+                        .addOnFailureListener(
+                                new OnFailureListener() {
+                                    @Override
+                                    public void onFailure(@NonNull Exception e) {
+                                        // Task failed with an exception
+                                        // ...
+                                    }
+                                });
+
+    }
+
+    public void performFaceRecognition(Rect bound, Bitmap input){
+        if(bound.top<0){
+            bound.top = 0;
+        }
+        if (bound.left < 0) {
+            bound.left = 0;
+        }
+        if(bound.right>input.getWidth()){
+            bound.right = input.getWidth() -1;
+        }
+        if(bound.bottom>input.getHeight()){
+            bound.bottom = input.getHeight()-1;
+        }
+
+        Bitmap croppedFace = Bitmap.createBitmap(input,bound.left, bound.top, bound.width(), bound.height());
+        imageView.setImageBitmap(croppedFace);
+
+    }
+
+    @Override
+    protected void onDestroy() {super.onDestroy();}
 
 
 }
