@@ -1,9 +1,6 @@
 package com.example.facerecognitionimages;
 
-import androidx.activity.result.ActivityResult;
-import androidx.activity.result.ActivityResultCallback;
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
@@ -34,6 +31,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
+import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
@@ -64,6 +62,7 @@ public class RegisterActivity extends AppCompatActivity {
     ImageView imageView;
     Uri image_uri, cameraImageUri;
     InputImage inputImage;
+    private TextToSpeech textToSpeech;
     private static final int REQUEST_PICK_IMAGE = 102;
     private static final int REQUEST_IMAGE_CAPTURE = 101;
     private static final int REQUEST_CAMERA_PERMISSION = 123;
@@ -75,6 +74,7 @@ public class RegisterActivity extends AppCompatActivity {
                     .build();
 
     FaceDetector detector;
+    private FaceEmbeddingModel faceEmbeddingModel;
 
 
     @Override
@@ -92,6 +92,22 @@ public class RegisterActivity extends AppCompatActivity {
         cameraCard.setOnClickListener(v-> takePicture(REQUEST_CAMERA_PERMISSION));
 
         detector = FaceDetection.getClient(highAccuracyOpts);
+        faceEmbeddingModel = new FaceEmbeddingModel(this);
+
+        textToSpeech = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                if (status == TextToSpeech.SUCCESS) {
+                    int langResult = textToSpeech.setLanguage(Locale.getDefault());
+                    if (langResult == TextToSpeech.LANG_MISSING_DATA
+                            || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        Toast.makeText(RegisterActivity.this, "Language not supported", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(RegisterActivity.this, "TTS initialization failed", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
 
 
     }
@@ -197,9 +213,8 @@ public class RegisterActivity extends AppCompatActivity {
         }
     }
 
-    public void performFaceDetection(Bitmap input){
-
-        Bitmap mutableBmp= input.copy(Bitmap.Config.ARGB_8888, true);
+    public void performFaceDetection(Bitmap input) {
+        Bitmap mutableBmp = input.copy(Bitmap.Config.ARGB_8888, true);
         Canvas canvas = new Canvas(mutableBmp);
         InputImage image = InputImage.fromBitmap(input, 0);
         Task<List<Face>> result =
@@ -209,18 +224,20 @@ public class RegisterActivity extends AppCompatActivity {
                                     @Override
                                     public void onSuccess(List<Face> faces) {
                                         // Task completed successfully
-                                        Log.d("tryFace", "Len = "+faces.size());
-                                        for (Face face : faces) {
-
-                                            Rect bounds = face.getBoundingBox();
-                                            Paint p1 = new Paint();
-                                            p1.setColor(Color.RED);
-                                            p1.setStyle(Paint.Style.STROKE);
-                                            performFaceRecognition(bounds,input);
-                                            canvas.drawRect(bounds, p1);
-
+                                        Log.d("tryFace", "Len = " + faces.size());
+                                        if (faces.isEmpty()) {
+                                            // No faces detected, trigger TTS
+                                            speak("No faces detected in the image.");
+                                        } else {
+                                            for (Face face : faces) {
+                                                Rect bounds = face.getBoundingBox();
+                                                Paint p1 = new Paint();
+                                                p1.setColor(Color.RED);
+                                                p1.setStyle(Paint.Style.STROKE);
+                                                performFaceRecognition(bounds, input);
+                                                canvas.drawRect(bounds, p1);
+                                            }
                                         }
-
                                     }
                                 })
                         .addOnFailureListener(
@@ -228,10 +245,14 @@ public class RegisterActivity extends AppCompatActivity {
                                     @Override
                                     public void onFailure(@NonNull Exception e) {
                                         // Task failed with an exception
-                                        // ...
                                     }
                                 });
+    }
 
+    private void speak(String text) {
+        if (textToSpeech != null) {
+            textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
+        }
     }
 
     public void performFaceRecognition(Rect bound, Bitmap input){
@@ -251,10 +272,31 @@ public class RegisterActivity extends AppCompatActivity {
         Bitmap croppedFace = Bitmap.createBitmap(input,bound.left, bound.top, bound.width(), bound.height());
         imageView.setImageBitmap(croppedFace);
 
+        float[] embedding = faceEmbeddingModel.getEmbedding(croppedFace);
+        Log.d("tryFace", "Len = "+embedding.length);
+        for (int i = 0;i<embedding.length;i++){
+            Log.d("tryFace", "embedding["+i+"] = "+embedding[i]);
+        }
+
+        // Save or compare the embedding as needed
+        saveOrCompareEmbedding(embedding);
+
+    }
+
+    private void saveOrCompareEmbedding(float[] embedding) {
+        // Logic to store or compare the embedding with stored embeddings
+        // For example, you can store it in a local Room or Firebase database
     }
 
     @Override
-    protected void onDestroy() {super.onDestroy();}
+    protected void onDestroy() {
+        if (textToSpeech != null) {
+            super.onDestroy();
+            if (textToSpeech != null) {
+                textToSpeech.stop();
+                textToSpeech.shutdown();
+            }
+        }}
 
 
 }
