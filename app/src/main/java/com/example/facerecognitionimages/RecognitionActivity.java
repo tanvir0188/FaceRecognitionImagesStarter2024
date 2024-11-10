@@ -75,7 +75,7 @@ public class RecognitionActivity extends AppCompatActivity {
     private TextToSpeech textToSpeech;
     private FaceEmbeddingModel faceEmbeddingModel;
     private DatabaseHelper dbHelper;
-    private static final float THRESHOLD = 0.8f;
+    private static final float THRESHOLD = 1.0f;
     private ExecutorService executorService = Executors.newSingleThreadExecutor();
 
 
@@ -287,25 +287,28 @@ public class RecognitionActivity extends AppCompatActivity {
                 List<Friend> storedFaces = dbHelper.getAllFaces();
                 Log.d("DatabaseInfo", "Number of friends in DB: " + storedFaces.size());
 
-                float maxSimilarity = 0.0f;
+                float minDistance = Float.MAX_VALUE;  // We are looking for the smallest distance
                 String recognizedName = null;
 
                 for (Friend friend : storedFaces) {
-                    float similarity = calculateCosineSimilarity(newEmbedding, friend.getEmbedding());
-                    Log.d("EmbeddingInfo", "Comparing with " + friend.getName() + ", similarity: " + similarity);
-                    if (similarity > maxSimilarity) {
-                        maxSimilarity = similarity;
+                    // Calculate Euclidean distance instead of cosine similarity
+                    float distance = calculateEuclideanDistance(newEmbedding, friend.getEmbedding());
+                    Log.d("EmbeddingInfo", "Comparing with " + friend.getName() + ", distance: " + distance);
+
+                    // We want the minimum distance, as smaller distance means higher similarity
+                    if (distance < minDistance) {
+                        minDistance = distance;
                         recognizedName = friend.getName();
                     }
                 }
 
                 // Update UI on the main thread after processing
-                float finalMaxSimilarity = maxSimilarity;
+                float finalMinDistance = minDistance;
                 String finalRecognizedName = recognizedName;
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (finalMaxSimilarity > THRESHOLD) {
+                        if (finalMinDistance < THRESHOLD) {  // Use threshold for recognition
                             speak("It's " + finalRecognizedName);
                         } else {
                             speak("Face not recognized.");
@@ -315,6 +318,7 @@ public class RecognitionActivity extends AppCompatActivity {
             }
         });
     }
+
 
 
     private float calculateCosineSimilarity(float[] embedding1, float[] embedding2) {
@@ -331,6 +335,21 @@ public class RecognitionActivity extends AppCompatActivity {
 
         return similarity;
     }
+
+    private float calculateEuclideanDistance(float[] embedding1, float[] embedding2) {
+        float sumSquaredDifferences = 0f;
+        for (int i = 0; i < embedding1.length; i++) {
+            float difference = embedding1[i] - embedding2[i];
+            sumSquaredDifferences += difference * difference;
+        }
+        float distance = (float) Math.sqrt(sumSquaredDifferences);
+
+        // Log the calculated Euclidean distance
+        Log.d("EuclideanDistance", "Calculated Euclidean distance: " + distance);
+
+        return distance;
+    }
+
 
 
 
