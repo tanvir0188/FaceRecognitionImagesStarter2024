@@ -11,29 +11,31 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.content.ContentValues;
+
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
+
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Matrix;
+
 import android.graphics.Paint;
-import android.graphics.PointF;
+
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+
 import android.os.Environment;
-import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
+import android.util.Base64;
 import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.Toast;
 
@@ -42,16 +44,19 @@ import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.face.Face;
-import com.google.mlkit.vision.face.FaceContour;
+
 import com.google.mlkit.vision.face.FaceDetection;
 import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
-import com.google.mlkit.vision.face.FaceLandmark;
+
+
+import java.io.ByteArrayOutputStream;
 
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.IOException;
+
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -66,6 +71,7 @@ public class RegisterActivity extends AppCompatActivity {
     private static final int REQUEST_PICK_IMAGE = 102;
     private static final int REQUEST_IMAGE_CAPTURE = 101;
     private static final int REQUEST_CAMERA_PERMISSION = 123;
+    private ArrayList<Friend> friends;
     FaceDetectorOptions highAccuracyOpts =
             new FaceDetectorOptions.Builder()
                     .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
@@ -93,6 +99,7 @@ public class RegisterActivity extends AppCompatActivity {
 
         detector = FaceDetection.getClient(highAccuracyOpts);
         faceEmbeddingModel = new FaceEmbeddingModel(this);
+        friends = new ArrayList<>();
 
         textToSpeech = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
             @Override
@@ -255,38 +262,91 @@ public class RegisterActivity extends AppCompatActivity {
         }
     }
 
-    public void performFaceRecognition(Rect bound, Bitmap input){
-        if(bound.top<0){
-            bound.top = 0;
-        }
-        if (bound.left < 0) {
-            bound.left = 0;
-        }
-        if(bound.right>input.getWidth()){
-            bound.right = input.getWidth() -1;
-        }
-        if(bound.bottom>input.getHeight()){
-            bound.bottom = input.getHeight()-1;
-        }
+    public void performFaceRecognition(Rect bound, Bitmap input) {
+        if (bound.top < 0) bound.top = 0;
+        if (bound.left < 0) bound.left = 0;
+        if (bound.right > input.getWidth()) bound.right = input.getWidth() - 1;
+        if (bound.bottom > input.getHeight()) bound.bottom = input.getHeight() - 1;
 
         Bitmap croppedFace = Bitmap.createBitmap(input,bound.left, bound.top, bound.width(), bound.height());
         imageView.setImageBitmap(croppedFace);
 
         float[] embedding = faceEmbeddingModel.getEmbedding(croppedFace);
-        Log.d("tryFace", "Len = "+embedding.length);
-        for (int i = 0;i<embedding.length;i++){
-            Log.d("tryFace", "embedding["+i+"] = "+embedding[i]);
+        Log.d("tryFace", "Len = " + embedding.length);
+
+        // Show dialog to register the name and save embedding
+        showRegistrationDialog(croppedFace, embedding);
+    }
+
+
+    private void saveEmbedding(String name, Bitmap faceImage, float[] embedding) {
+        DatabaseHelper dbHelper = new DatabaseHelper(this);
+        String regex = "^[a-zA-Z\\s]+$";
+
+        if (name.isEmpty() || !name.matches(regex)) {
+            Toast.makeText(this, "Please enter a valid name", Toast.LENGTH_SHORT).show();
+        } else {
+            String faceImageBase64 = encodeImageToBase64(faceImage);
+            dbHelper.saveData(name, faceImageBase64, embedding);
+            Toast.makeText(this, "Data saved successfully", Toast.LENGTH_SHORT).show();
+            Friend friend = new Friend(name, faceImageBase64, embedding);
+
+            // Log to confirm the friend details before adding
+            Log.d("saveEmbedding", "Adding friend with name: " + name + ", embedding length: " + embedding.length);
+
+            friends.add(friend);
         }
-
-        // Save or compare the embedding as needed
-        saveOrCompareEmbedding(embedding);
-
+    }
+    private String encodeImageToBase64(Bitmap image) {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        image.compress(Bitmap.CompressFormat.PNG, 100, byteArrayOutputStream);
+        byte[] byteArray = byteArrayOutputStream.toByteArray();
+        return Base64.encodeToString(byteArray, Base64.DEFAULT);
     }
 
-    private void saveOrCompareEmbedding(float[] embedding) {
-        // Logic to store or compare the embedding with stored embeddings
-        // For example, you can store it in a local Room or Firebase database
+    private void showRegistrationDialog(Bitmap croppedFace, float[] embedding) {
+        // Inflate the custom dialog layout
+        LayoutInflater inflater = getLayoutInflater();
+        View dialogView = inflater.inflate(R.layout.register_face_dialogue, null); // Replace with your actual layout resource
+
+        // Initialize dialog components
+        ImageView dlgImage = dialogView.findViewById(R.id.dlg_image);
+        EditText dlgInput = dialogView.findViewById(R.id.dlg_input);
+        Button registerButton = dialogView.findViewById(R.id.button2);
+
+        // Set the cropped face image in the dialog
+        dlgImage.setImageBitmap(croppedFace);
+
+        // Create and show the dialog
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setView(dialogView);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+
+        // Set button action to register the name and save the embedding
+        registerButton.setOnClickListener(v -> {
+            String name = dlgInput.getText().toString().trim();
+            if (!name.isEmpty()) {
+                // Log the name and embedding info before saving
+                Log.d("RegistrationDialog", "Registering name: " + name);
+                Log.d("RegistrationDialog", "Embedding length: " + embedding.length);
+
+                // Save the embedding data with the name
+                saveEmbedding(name, croppedFace, embedding);
+
+                // Confirm registration success
+                Log.d("RegistrationDialog", "Registration successful for name: " + name);
+                dialog.dismiss();
+                Log.d("RegistrationDialog", "Dialog dismissed after registration.");
+                speak("Registration successful for name: " + name);
+            } else {
+                speak("Empty name entered; registration not saved.");
+                Log.d("RegistrationDialog", "Empty name entered; registration not saved.");
+            }
+        });
     }
+
+
 
     @Override
     protected void onDestroy() {
@@ -296,7 +356,8 @@ public class RegisterActivity extends AppCompatActivity {
                 textToSpeech.stop();
                 textToSpeech.shutdown();
             }
-        }}
+        }
+    }
 
 
 }
